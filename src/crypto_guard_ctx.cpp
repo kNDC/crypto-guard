@@ -14,17 +14,17 @@ namespace CryptoGuard
     {
         friend CryptoGuardCtx;
 
-        static const size_t BLOCK_SIZE = 128;
+        static const size_t BLOCK_SIZE = 32;    // Data block size
+        static const size_t SHA256_SIZE = 32;   // SHA256 buffer length
 
         struct AesCipherParams
         {
-            static const size_t KEY_SIZE = 32;             // AES-256 key size
-            static const size_t BLOCK_SIZE = 16;              // AES block size (IV length)
-            const EVP_CIPHER* cipher = EVP_aes_256_cbc();  // Cipher algorithm
+            static const size_t KEY_SIZE = 32;              // AES-256 key size
+            const EVP_CIPHER* cipher = EVP_aes_256_cbc();   // Cipher algorithm
 
             int encrypt;                              // 1 for encryption, 0 for decryption
             std::array<unsigned char, KEY_SIZE> key;  // Encryption key
-            std::array<unsigned char, BLOCK_SIZE> iv;    // Initialisation vector
+            std::array<unsigned char, BLOCK_SIZE> iv; // Initialisation vector
         };
 
         AesCipherParams CreateCipherParamsFromPassword(std::string_view password);
@@ -41,7 +41,7 @@ namespace CryptoGuard
             std::string_view password);
         void DecryptFile(std::iostream& is, std::iostream& os, 
             std::string_view password);
-        std::string CalculateChecksum(std::iostream& is);
+        [[nodiscard]] std::string CalculateChecksum(std::iostream& is);
 
     public:
         Impl();
@@ -102,6 +102,7 @@ namespace CryptoGuard
     {
         if (!is) throw std::runtime_error("Cannot open the input file");
         if (!os) throw std::runtime_error("Cannot generate the output file");
+        if (&is == &os) throw std::logic_error("Input and output files cannot coincide"); 
 
         AesCipherParams params = CreateCipherParamsFromPassword(password);
         params.encrypt = encrypt ? 1 : 0;
@@ -131,38 +132,40 @@ namespace CryptoGuard
         std::array<unsigned char, BLOCK_SIZE> buffer_in;
         std::array<unsigned char, 
             BLOCK_SIZE + EVP_MAX_BLOCK_LENGTH> buffer_out;
-        size_t n_bytes_out;
+        int n_bytes_out;
 
         // Поблочное шифрование содержимого входящего потока
         while (true)
         {
-            size_t n_bytes_in = 
-                is.readsome((char*)buffer_in.data(), BLOCK_SIZE);
+            int n_bytes_in = 
+                is.readsome(reinterpret_cast<char*>(buffer_in.data()), 
+                    BLOCK_SIZE);
+            
             if (!is) throw std::runtime_error("Error reading from the input file");
 
             if (!n_bytes_in) break;
 
             if (!EVP_CipherUpdate(ctx.get(), 
-                buffer_out.data(), (int*)&n_bytes_out, 
+                buffer_out.data(), &n_bytes_out, 
                 buffer_in.data(), n_bytes_in))
             {
                 throw std::runtime_error(ErrorText("Cannot update "
-                    "the ciphering context."));
+                    "the ciphering context"));
             }
             
-            os.write((char*)buffer_out.data(), n_bytes_out);
+            os.write(reinterpret_cast<char*>(buffer_out.data()), n_bytes_out);
             if (!os) throw std::runtime_error("Error writing to the output file");
         }
 
         // Заканчиваем работу с cipher
         if (!EVP_CipherFinal_ex(ctx.get(), 
-            buffer_out.data(), (int*)&n_bytes_out))
+            buffer_out.data(), &n_bytes_out))
         {
             throw std::runtime_error(ErrorText("Cannot finalise "
                 "the ciphering context"));
         }
         
-        os.write((char*)buffer_out.data(), n_bytes_out);
+        os.write(reinterpret_cast<char*>(buffer_out.data()), n_bytes_out);
         if (!os) throw std::runtime_error("Error writing to the output file");
     }
 
@@ -193,9 +196,9 @@ namespace CryptoGuard
     std::string CryptoGuardCtx::Impl::CalculateChecksum(std::iostream& is)
     {
         if (!is) throw std::runtime_error("Cannot open the input file");
-
-        std::vector<unsigned char> input = ExtractAllData(is);
-        std::array<unsigned char, 32> sha256;
+        
+        std::array<unsigned char, BLOCK_SIZE> buffer_in;
+        std::array<unsigned char, SHA256_SIZE> sha256;
 
         // Подготовка обработчика
         using pEvpMD = std::unique_ptr<EVP_MD_CTX, 
@@ -218,13 +221,25 @@ namespace CryptoGuard
             throw std::runtime_error(ErrorText("Cannot initialise "
                 "the digesting context"));
         }
-
-        // Подсчёт
-        if (!EVP_DigestUpdate(ctx.get(), input.data(), input.size()))
+        
+        // Поблочное шифрование содержимого входящего потока
+        while (true)
         {
-            throw std::runtime_error(ErrorText("Cannot update "
-                "the digesting context"));
+            int n_bytes_in = 
+                is.readsome(reinterpret_cast<char*>(buffer_in.data()), 
+                    BLOCK_SIZE);
+            
+            if (!is) throw std::runtime_error("Error reading from the input file");
+
+            if (!n_bytes_in) break;
+
+            if (!EVP_DigestUpdate(ctx.get(), buffer_in.data(), n_bytes_in))
+            {
+                throw std::runtime_error(ErrorText("Cannot update "
+                    "the digesting context"));
+            }
         }
+        
 
         // Завершение
         if (!EVP_DigestFinal_ex(ctx.get(), sha256.data(), nullptr))
