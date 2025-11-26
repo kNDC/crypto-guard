@@ -137,11 +137,15 @@ namespace CryptoGuard
         // Поблочное шифрование содержимого входящего потока
         while (true)
         {
-            int n_bytes_in = 
-                is.readsome(reinterpret_cast<char*>(buffer_in.data()), 
-                    BLOCK_SIZE);
+            is.read(reinterpret_cast<char*>(buffer_in.data()), 
+                BLOCK_SIZE);
+            int n_bytes_in = is.gcount();
             
-            if (!is) throw std::runtime_error("Error reading from the input file");
+            if (!is && !is.eof())
+            {
+                throw std::runtime_error("Error reading from "
+                    "the input file");
+            }
 
             if (!n_bytes_in) break;
 
@@ -154,7 +158,11 @@ namespace CryptoGuard
             }
             
             os.write(reinterpret_cast<char*>(buffer_out.data()), n_bytes_out);
-            if (!os) throw std::runtime_error("Error writing to the output file");
+            if (!os)
+            {
+                throw std::runtime_error("Error writing to "
+                    "the output file");
+            }
         }
 
         // Заканчиваем работу с cipher
@@ -166,7 +174,11 @@ namespace CryptoGuard
         }
         
         os.write(reinterpret_cast<char*>(buffer_out.data()), n_bytes_out);
-        if (!os) throw std::runtime_error("Error writing to the output file");
+        if (!os)
+        {
+            throw std::runtime_error("Error writing to "
+                "the output file");
+        }
     }
 
     CryptoGuardCtx::Impl::Impl()
@@ -196,7 +208,7 @@ namespace CryptoGuard
     std::string CryptoGuardCtx::Impl::CalculateChecksum(std::iostream& is)
     {
         if (!is) throw std::runtime_error("Cannot open the input file");
-        
+
         std::array<unsigned char, BLOCK_SIZE> buffer_in;
         std::array<unsigned char, SHA256_SIZE> sha256;
 
@@ -225,11 +237,15 @@ namespace CryptoGuard
         // Поблочное шифрование содержимого входящего потока
         while (true)
         {
-            int n_bytes_in = 
-                is.readsome(reinterpret_cast<char*>(buffer_in.data()), 
-                    BLOCK_SIZE);
+            is.read(reinterpret_cast<char*>(buffer_in.data()), 
+                BLOCK_SIZE);
+            int n_bytes_in = is.gcount();
             
-            if (!is) throw std::runtime_error("Error reading from the input file");
+            if (!is && !is.eof())
+            {
+                throw std::runtime_error("Error reading from "
+                    "the input file");
+            }
 
             if (!n_bytes_in) break;
 
