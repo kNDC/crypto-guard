@@ -1,4 +1,5 @@
 # Folders
+*.devcontainer
 *.cache/
 *build/
 .idea/
@@ -6,6 +7,7 @@
 
 # Files
 CMakeUserPresets.json
+.gitignore
 *.swp
 *.swo
 *.user
